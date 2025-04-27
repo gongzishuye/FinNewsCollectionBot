@@ -22,26 +22,7 @@ openai_client = OpenAI(api_key=openai_api_key, base_url="https://ark.cn-beijing.
 rss_feeds = {
     "💲 华尔街见闻":{
         "华尔街见闻":"https://dedicated.wallstreetcn.com/rss.xml",      
-    },
-    "💻 36氪":{
-        "36氪":"https://36kr.com/feed",   
-        },
-    "🇨🇳 中国经济": {
-        "香港經濟日報":"https://www.hket.com/rss/china",
-        "东方财富":"http://rss.eastmoney.com/rss_partener.xml",
-        "国家统计局-最新发布":"https://www.stats.gov.cn/sj/zxfb/rss.xml",
-    },
-      "🇺🇸 美国经济": {
-        "华尔街日报 - 经济":"https://feeds.content.dowjones.io/public/rss/WSJcomUSBusiness",
-        "华尔街日报 - 市场":"https://feeds.content.dowjones.io/public/rss/RSSMarketsMain",
-        "MarketWatch美股": "https://www.marketwatch.com/rss/topstories",
-        "ZeroHedge华尔街新闻": "https://feeds.feedburner.com/zerohedge/feed",
-        "ETF Trends": "https://www.etftrends.com/feed/",
-    },
-    "🌍 世界经济": {
-        "华尔街日报 - 经济":"https://feeds.content.dowjones.io/public/rss/socialeconomyfeed",
-        "BBC全球经济": "http://feeds.bbci.co.uk/news/business/rss.xml",
-    },
+    }
 }
 
 # 获取北京时间
@@ -121,6 +102,56 @@ def fetch_rss_articles(rss_feeds, max_articles=10):
 
     return news_data, analysis_text
 
+def get_hot_links(period='day'):
+    api_root_url = 'https://api-one-wscn.awtmt.com'
+    
+    # 1. 获取热门文章列表
+    api_url = f"{api_root_url}/apiv1/content/articles/hot?period=all"
+    response = requests.get(api_url)
+    response.raise_for_status()
+    json_data = response.json()
+    
+    # 2. 解析基础数据
+    raw_items = json_data['data'][f"{period}_items"]
+    print(raw_items)
+    base_items = [{
+        'title': item['title'],
+        'link': item['uri'],
+        'pubDate': datetime.fromtimestamp(item['display_time']),
+    } for item in raw_items]
+    return base_items
+
+# 获取RSS内容（爬取正文但不展示）
+def fetch_wallstreetcn_articles(category='华尔街见闻', source='wallstreetcn'):
+    news_data = {}
+    analysis_text = ""  # 用于AI分析的正文内容
+    category_content = ""
+
+    items = get_hot_links()
+    print('获得了', len(items), '条热门文章')
+    articles = []
+    for entry in items:
+        title = entry.get('title', '无标题')
+        link = entry.get('link', '') or entry.get('guid', '')
+        if not link:
+            print(f"⚠️ {source} 的新闻 '{title}' 没有链接，跳过")
+            continue
+
+        # 爬取正文用于分析（不展示）
+        article_text = fetch_article_text(link)
+        analysis_text += f"【{title}】\n{article_text}\n\n"
+
+        print(f"🔹 {source} - {title} 获取成功")
+        articles.append(f"- [{title}]({link})")
+
+    if articles:
+        category_content += f"### {source}\n" + "\n".join(articles) + "\n\n"
+
+    news_data[category] = category_content
+
+    return news_data, analysis_text
+
+
 # AI 生成内容摘要（基于爬取的正文）
 def summarize(text):
     completion = openai_client.chat.completions.create(
@@ -148,7 +179,8 @@ if __name__ == "__main__":
     today_str = today_date().strftime("%Y-%m-%d")
 
     # 每个网站获取最多 5 篇文章
-    articles_data, analysis_text = fetch_rss_articles(rss_feeds, max_articles=5)
+    # articles_data, analysis_text = fetch_rss_articles(rss_feeds, max_articles=5)
+    articles_data, analysis_text = fetch_wallstreetcn_articles()
     
     # AI生成摘要
     summary = summarize(analysis_text)
